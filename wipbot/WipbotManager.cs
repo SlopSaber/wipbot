@@ -299,6 +299,10 @@ namespace wipbot
             {
                 int renamedFolders = 0;
                 var wipDirectory = Path.Combine(Environment.CurrentDirectory, "Beat Saber_Data", "CustomWIPLevels");
+                // A fresh game instance has no WIP folders to migrate yet.
+                if (!Directory.Exists(wipDirectory))
+                    return;
+
                 Directory.GetDirectories(wipDirectory).ToList().ForEach(wipFolder =>
                 {
                     if (Path.GetFileName(wipFolder).StartsWith("wipbot_") && !Path.GetFileName(wipFolder).StartsWith("wipbot_("))
