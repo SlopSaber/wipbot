@@ -15,7 +15,7 @@
     <DebugSymbols>true</DebugSymbols>
     <DebugType>portable</DebugType>
     <LocalRefsDir Condition="Exists('..\Refs')">..\Refs</LocalRefsDir>
-    <LocalRefsDir Condition="'$(LocalRefsDir)' == ''">D:\BSManager\BSInstances\1.44.0</LocalRefsDir>
+    <LocalRefsDir Condition="'$(LocalRefsDir)' == ''">$(BeatSaberDir)</LocalRefsDir>
     <BeatSaberDir Condition="'$(BeatSaberDir)' == ''">$(LocalRefsDir)</BeatSaberDir>
     <GameDirectory>$(LocalRefsDir)</GameDirectory>
     <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
@@ -53,7 +53,7 @@
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="ChatPlexSDK_BS">
-      <HintPath>D:\BSManager\BSInstances\1.44.0\Plugins\ChatPlexSDK_BS.dll</HintPath>
+      <HintPath>$(BeatSaberDir)\Plugins\ChatPlexSDK_BS.dll</HintPath>
       <Private>False</Private>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
