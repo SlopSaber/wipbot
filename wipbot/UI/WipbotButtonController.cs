@@ -1,6 +1,7 @@
 ﻿using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
-using BeatSaberMarkupLanguage.Util;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System;
 using System.Linq;
 using System.Text;
@@ -11,10 +12,16 @@ using Zenject;
 #pragma warning disable IDE0051 // Remove unused private members
 namespace wipbot.UI
 {
-    public class WipbotButtonController : NotifiableSingleton<WipbotButtonController>, IInitializable
+    public class WipbotButtonController : INotifyPropertyChanged, IInitializable
     {
-        [Inject] private readonly WBConfig Config;
-        [Inject] private readonly MainThreadDispatcher _mainThreadDispatcher;
+        [Inject] private WBConfig Config { get; set; }
+        [Inject] private BSMLParser BsmlParser { get; set; }
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private void NotifyPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
         internal event Action OnWipButtonPressed;
         private bool _fakeButtonActive = true;
         private bool _wipButtonActive = false;
@@ -22,10 +29,7 @@ namespace wipbot.UI
         private string _wipButtonHint = "";
 
         [UIComponent("wipbot-button")]
-        private readonly RectTransform wipbotButtonTransform;
-
-        [UIComponent("wipbot-button2")]
-        private readonly RectTransform wipbotButton2Transform;
+        private RectTransform wipbotButtonTransform { get; set; }
 
         [UIValue("FakeButtonActive")]
         public bool FakeButtonActive

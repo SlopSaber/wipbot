@@ -4,5 +4,6 @@
 	<PropertyGroup>
 		<ImportBSMTTargets>True</ImportBSMTTargets>
 		<BSMTProjectType>BSIPA</BSMTProjectType>
+		<GameDirectory Condition="'$(GameDirectory)' == ''">D:\BSManager\BSInstances\1.45.1</GameDirectory>
 	</PropertyGroup>
 </Project>

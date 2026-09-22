@@ -22,14 +22,10 @@ namespace wipbot
 {
     internal class WipbotManager : IInitializable
     {
-        [Inject] private readonly LevelCollectionNavigationController navigationController;
-        [Inject] private readonly SelectLevelCategoryViewController categoryController;
-        [Inject] private readonly LevelFilteringNavigationController filteringController;
-        [Inject] private readonly LevelSearchViewController searchController;
-        [Inject] private readonly WipbotButtonController WipbotButtonController;
-        [Inject] private readonly WBConfig Config;
-        [Inject] private readonly SiraLog Logger;
-        [Inject] private readonly IChatIntegration ChatIntegration;
+        [Inject] private WipbotButtonController WipbotButtonController { get; set; }
+        [Inject] private WBConfig Config { get; set; }
+        [Inject] private SiraLog Logger { get; set; }
+        [Inject] private IChatIntegration ChatIntegration { get; set; }
 
         private readonly ExtendedQueue<QueueItem> WipQueue = new ExtendedQueue<QueueItem>();
         private readonly BlockingCollection<QueueItem> DownloadQueue = new BlockingCollection<QueueItem>();
