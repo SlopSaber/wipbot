@@ -16,6 +16,7 @@ namespace wipbot.UI
 {
     public class WipbotButtonController : INotifyPropertyChanged, IInitializable
     {
+        private const float TitleUnderlineHeightScale = 1.3f;
         [Inject] private WBConfig Config { get; set; }
         [Inject] private BSMLParser BsmlParser { get; set; }
         public event PropertyChangedEventHandler PropertyChanged;
@@ -32,6 +33,9 @@ namespace wipbot.UI
 
         [UIComponent("wipbot-button")]
         private RectTransform wipbotButtonTransform { get; set; }
+
+        [UIComponent("wipbot-button2")]
+        private RectTransform activeWipbotButtonTransform { get; set; }
 
         [UIComponent("wipbot-root")]
         private RectTransform wipbotRootTransform { get; set; }
@@ -74,9 +78,20 @@ namespace wipbot.UI
                 "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3.5' on-click='wipbot-click2' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='7' pref-width='10.5' />" +
                 "</bg>"
                 , title.gameObject, this);
+            SetUnderlineHeight(wipbotButtonTransform);
+            SetUnderlineHeight(activeWipbotButtonTransform);
             var levelSelection = Resources.FindObjectsOfTypeAll<LevelSelectionNavigationController>().First();
             var wipRoot = wipbotRootTransform.gameObject;
             title.gameObject.AddComponent<WipTitleButtonVisibility>().Initialize(wipRoot, levelSelection.gameObject);
+        }
+
+        private static void SetUnderlineHeight(RectTransform button)
+        {
+            if (button == null) return;
+            var underline = button.Find("Underline");
+            if (underline == null) return;
+            var scale = underline.localScale;
+            underline.localScale = new Vector3(scale.x, scale.y * TitleUnderlineHeightScale, scale.z);
         }
 
         [UIAction("wipbot-click2")]
