@@ -3,6 +3,7 @@ using BeatSaberMarkupLanguage.Attributes;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using IPA.Utilities.Async;
+using IPA.Utilities;
 using System;
 using System.Linq;
 using System.Text;
@@ -71,10 +72,10 @@ namespace wipbot.UI
                 "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='9' />" +
                 "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3' on-click='wipbot-click2' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='9' />" +
                 "</bg>"
-                , Resources.FindObjectsOfTypeAll<HMUI.TitleViewController>().First().gameObject, this);
+                , BeatSaberUI.DiContainer.Resolve<HMUI.HierarchyManager>().GetField<HMUI.ScreenSystem, HMUI.HierarchyManager>("_screenSystem").titleViewController.gameObject, this);
             var levelSelection = Resources.FindObjectsOfTypeAll<LevelSelectionNavigationController>().First();
             var wipRoot = wipbotRootTransform.gameObject;
-            wipRoot.SetActive(levelSelection.isActivated);
+            wipRoot.SetActive(levelSelection.gameObject.activeInHierarchy);
             levelSelection.didActivateEvent += (firstActivation, addedToHierarchy, screenSystemEnabling) => { if (wipRoot != null) wipRoot.SetActive(true); };
             levelSelection.didDeactivateEvent += (removedFromHierarchy, screenSystemDisabling) => { if (wipRoot != null) wipRoot.SetActive(false); };
         }
