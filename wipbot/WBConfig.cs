@@ -26,7 +26,7 @@ namespace wipbot
         public virtual QueueLimits QueueLimits { get; set; } = new QueueLimits { User = 2, Subscriber = 2, Vip = 2, Moderator = 2 };
         public virtual int QueueSize { get; set; } = 9;
         public virtual int ButtonPositionX { get; set; } = 91;
-        public virtual int ButtonPositionY { get; set; } = -9;
+        public virtual int ButtonPositionY { get; set; } = -7;
         public virtual string MessageInvalidRequest { get; set; } = "! Invalid request. To request a WIP, go to https://wipbot.com/ or upload the .zip anywhere on discord or on google drive, copy the download link and use the command !wip (link)";
         public virtual string MessageWipRequested { get; set; } = "! WIP requested";
         public virtual string MessageUndoRequest { get; set; } = "! Removed your latest request from wip queue";
