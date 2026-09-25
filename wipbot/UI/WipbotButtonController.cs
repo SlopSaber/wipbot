@@ -33,8 +33,8 @@ namespace wipbot.UI
         [UIComponent("wipbot-button")]
         private RectTransform wipbotButtonTransform { get; set; }
 
-        [UIComponent("wipbot-button2")]
-        private RectTransform activeWipbotButtonTransform { get; set; }
+        [UIComponent("wipbot-root")]
+        private RectTransform wipbotRootTransform { get; set; }
 
         [UIValue("FakeButtonActive")]
         public bool FakeButtonActive
@@ -68,27 +68,33 @@ namespace wipbot.UI
         {
             if (wipbotButtonTransform != null) return;
             BsmlParser.Parse(
-                "<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>" +
+                "<bg id='wipbot-root' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>" +
                 "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='11' />" +
                 "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3' on-click='wipbot-click2' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='11' />" +
                 "</bg>"
                 , Resources.FindObjectsOfTypeAll<LevelSelectionNavigationController>().First().gameObject, this);
-            MakeMenuBarButtonInteractive(wipbotButtonTransform);
-            MakeMenuBarButtonInteractive(activeWipbotButtonTransform);
+            MakeMenuBarButtonInteractive(wipbotRootTransform);
         }
 
-        private static void MakeMenuBarButtonInteractive(RectTransform button)
+        private static void MakeMenuBarButtonInteractive(RectTransform root)
         {
-            var canvas = button.gameObject.AddComponent<Canvas>();
+            var parentCanvas = root.GetComponentInParent<Canvas>();
+            var parentCurve = parentCanvas?.rootCanvas.GetComponent<HMUI.CurvedCanvasSettings>();
+            var canvas = root.gameObject.AddComponent<Canvas>();
             canvas.overrideSorting = true;
             canvas.sortingOrder = 100;
+            canvas.additionalShaderChannels |= AdditionalCanvasShaderChannels.TexCoord2;
+            if (parentCurve != null)
+            {
+                root.gameObject.AddComponent<HMUI.CurvedCanvasSettings>().SetRadius(parentCurve.radius);
+            }
             if (BeatSaberUI.DiContainer.IsInstalling)
             {
-                BeatSaberUI.DiContainer.QueueForInject(button.gameObject.AddComponent<VRGraphicRaycaster>());
+                BeatSaberUI.DiContainer.QueueForInject(root.gameObject.AddComponent<VRGraphicRaycaster>());
             }
             else
             {
-                BeatSaberUI.DiContainer.InstantiateComponent<VRGraphicRaycaster>(button.gameObject);
+                BeatSaberUI.DiContainer.InstantiateComponent<VRGraphicRaycaster>(root.gameObject);
             }
         }
 
