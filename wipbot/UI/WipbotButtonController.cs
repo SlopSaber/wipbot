@@ -75,9 +75,7 @@ namespace wipbot.UI
                 , BeatSaberUI.DiContainer.Resolve<HMUI.HierarchyManager>().GetField<HMUI.ScreenSystem, HMUI.HierarchyManager>("_screenSystem").titleViewController.gameObject, this);
             var levelSelection = Resources.FindObjectsOfTypeAll<LevelSelectionNavigationController>().First();
             var wipRoot = wipbotRootTransform.gameObject;
-            wipRoot.SetActive(levelSelection.gameObject.activeInHierarchy);
-            levelSelection.didActivateEvent += (firstActivation, addedToHierarchy, screenSystemEnabling) => { if (wipRoot != null) wipRoot.SetActive(true); };
-            levelSelection.didDeactivateEvent += (removedFromHierarchy, screenSystemDisabling) => { if (wipRoot != null) wipRoot.SetActive(false); };
+            wipRoot.GetComponentInParent<HMUI.TitleViewController>().gameObject.AddComponent<WipTitleButtonVisibility>().Initialize(wipRoot, levelSelection.gameObject);
         }
 
         [UIAction("wipbot-click2")]
@@ -107,5 +105,32 @@ namespace wipbot.UI
 
         [UIAction("wipbot-click")]
         void Asdf2() { }
+    }
+
+    internal sealed class WipTitleButtonVisibility : MonoBehaviour
+    {
+        private GameObject buttonRoot;
+        private GameObject levelSelection;
+
+        internal void Initialize(GameObject root, GameObject menu)
+        {
+            buttonRoot = root;
+            levelSelection = menu;
+            UpdateVisibility();
+        }
+
+        private void Update()
+        {
+            UpdateVisibility();
+        }
+
+        private void UpdateVisibility()
+        {
+            if (buttonRoot == null) return;
+            var shouldShow = levelSelection != null && levelSelection.activeInHierarchy;
+            if (buttonRoot.activeSelf == shouldShow) return;
+            buttonRoot.SetActive(shouldShow);
+            if (shouldShow) Debug.Log("[wipbot] WIP title button visible");
+        }
     }
 }
