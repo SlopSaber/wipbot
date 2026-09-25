@@ -70,7 +70,7 @@ namespace wipbot.UI
             var title = BeatSaberUI.DiContainer.Resolve<HMUI.HierarchyManager>().GetField<HMUI.ScreenSystem, HMUI.HierarchyManager>("_screenSystem").titleViewController;
             BsmlParser.Parse(
                 "<bg id='wipbot-root' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>" +
-                "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3.5' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='7' pref-width='7' />" +
+                "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3.5' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='7' pref-width='10.5' />" +
                 "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3.5' on-click='wipbot-click2' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='7' pref-width='10.5' />" +
                 "</bg>"
                 , title.gameObject, this);
