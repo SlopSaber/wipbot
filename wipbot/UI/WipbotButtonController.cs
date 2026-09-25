@@ -67,15 +67,16 @@ namespace wipbot.UI
         public void Initialize()
         {
             if (wipbotButtonTransform != null) return;
+            var title = BeatSaberUI.DiContainer.Resolve<HMUI.HierarchyManager>().GetField<HMUI.ScreenSystem, HMUI.HierarchyManager>("_screenSystem").titleViewController;
             BsmlParser.Parse(
                 "<bg id='wipbot-root' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>" +
                 "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='9' />" +
                 "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3' on-click='wipbot-click2' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='9' />" +
                 "</bg>"
-                , BeatSaberUI.DiContainer.Resolve<HMUI.HierarchyManager>().GetField<HMUI.ScreenSystem, HMUI.HierarchyManager>("_screenSystem").titleViewController.gameObject, this);
+                , title.gameObject, this);
             var levelSelection = Resources.FindObjectsOfTypeAll<LevelSelectionNavigationController>().First();
             var wipRoot = wipbotRootTransform.gameObject;
-            wipRoot.GetComponentInParent<HMUI.TitleViewController>().gameObject.AddComponent<WipTitleButtonVisibility>().Initialize(wipRoot, levelSelection.gameObject);
+            title.gameObject.AddComponent<WipTitleButtonVisibility>().Initialize(wipRoot, levelSelection.gameObject);
         }
 
         [UIAction("wipbot-click2")]
@@ -111,6 +112,7 @@ namespace wipbot.UI
     {
         private GameObject buttonRoot;
         private GameObject levelSelection;
+        private bool wasVisible;
 
         internal void Initialize(GameObject root, GameObject menu)
         {
@@ -128,9 +130,13 @@ namespace wipbot.UI
         {
             if (buttonRoot == null) return;
             var shouldShow = levelSelection != null && levelSelection.activeInHierarchy;
-            if (buttonRoot.activeSelf == shouldShow) return;
-            buttonRoot.SetActive(shouldShow);
-            if (shouldShow) Debug.Log("[wipbot] WIP title button visible");
+            if (buttonRoot.activeSelf != shouldShow) buttonRoot.SetActive(shouldShow);
+            if (shouldShow && !wasVisible)
+            {
+                buttonRoot.transform.SetAsLastSibling();
+                Debug.Log("[wipbot] WIP title button visible");
+            }
+            wasVisible = shouldShow;
         }
     }
 }
