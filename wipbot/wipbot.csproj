@@ -137,6 +137,10 @@
       <HintPath>$(GameDirectory)\Beat Saber_Data\Managed\UnityEngine.VRModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="VRUI">
+      <HintPath>$(GameDirectory)\Beat Saber_Data\Managed\VRUI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Zenject">
       <HintPath>$(GameDirectory)\Beat Saber_Data\Managed\Zenject.dll</HintPath>
       <Private>False</Private>

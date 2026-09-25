@@ -6,6 +6,7 @@ using System;
 using System.Linq;
 using System.Text;
 using UnityEngine;
+using VRUIControls;
 using wipbot.Models;
 using Zenject;
 
@@ -30,6 +31,9 @@ namespace wipbot.UI
 
         [UIComponent("wipbot-button")]
         private RectTransform wipbotButtonTransform { get; set; }
+
+        [UIComponent("wipbot-button2")]
+        private RectTransform activeWipbotButtonTransform { get; set; }
 
         [UIValue("FakeButtonActive")]
         public bool FakeButtonActive
@@ -65,9 +69,26 @@ namespace wipbot.UI
             BSMLParser.instance.Parse(
                 "<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>" +
                 "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='11' />" +
-                "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3' on-click='wipbot-click2' anchor-pos-x='" + (Config.ButtonPositionX - 80) + "' anchor-pos-y='" + (Config.ButtonPositionY + 3) + "' pref-height='6' pref-width='11' />" +
+                "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3' on-click='wipbot-click2' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='11' />" +
                 "</bg>"
                 , Resources.FindObjectsOfTypeAll<LevelSelectionNavigationController>().First().gameObject, this);
+            MakeMenuBarButtonInteractive(wipbotButtonTransform);
+            MakeMenuBarButtonInteractive(activeWipbotButtonTransform);
+        }
+
+        private static void MakeMenuBarButtonInteractive(RectTransform button)
+        {
+            var canvas = button.gameObject.AddComponent<Canvas>();
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = 100;
+            if (BeatSaberUI.DiContainer.IsInstalling)
+            {
+                BeatSaberUI.DiContainer.QueueForInject(button.gameObject.AddComponent<VRGraphicRaycaster>());
+            }
+            else
+            {
+                BeatSaberUI.DiContainer.InstantiateComponent<VRGraphicRaycaster>(button.gameObject);
+            }
         }
 
         [UIAction("wipbot-click2")]
