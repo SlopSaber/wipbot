@@ -19,12 +19,12 @@ namespace wipbot
         public Plugin(IPALogger logger, IPA.Config.Config config, Zenjector zenject)
         {
             zenject.UseLogger(logger);
+            var wbConfig = config.Generated<WBConfig>();
+            var chat = InitializeChat(logger);
 
             zenject.Install(Location.App, Container =>
             {
-                Container.BindInstance(config.Generated<WBConfig>()).AsSingle();
-                var chat = InitializeChat(logger);
-                
+                Container.BindInstance(wbConfig).AsSingle();
                 if (chat != null) Container.BindInstance(chat).AsSingle();
             });
             zenject.Install(Location.Menu, Container =>
@@ -41,21 +41,11 @@ namespace wipbot
                 logger.Info("Using ChatPlexSDK for chat");
                 return InitChatPlexSDKInterop();
             }
-            else if (IPA.Loader.PluginManager.EnabledPlugins.Any(x => x.Id == "CatCore"))
-            {
-                logger.Info("Using CatCore for chat");
-                return InitCatCoreInterop();
-            }
             else
             {
                 logger.Error("Wipbot failed to initialize chat. ChatPlexSDK (BeatSaberPlus) or CatCore have to be installed for wipbot to work");
                 return null;
             }
-        }
-
-        private static IChatIntegration InitCatCoreInterop()
-        {
-            return new CatCoreInterop();
         }
 
         private static IChatIntegration InitChatPlexSDKInterop()

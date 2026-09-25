@@ -2,6 +2,7 @@
 using BeatSaberMarkupLanguage.Attributes;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using IPA.Utilities.Async;
 using System;
 using System.Linq;
 using System.Text;
@@ -39,34 +40,34 @@ namespace wipbot.UI
         public bool FakeButtonActive
         {
             get => _fakeButtonActive;
-            set { _fakeButtonActive = value; _mainThreadDispatcher.DispatchOnMainThread(() => NotifyPropertyChanged()); }
+            set { _fakeButtonActive = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         [UIValue("WipButtonActive")]
         public bool WipButtonActive
         {
             get => _wipButtonActive;
-            set { _wipButtonActive = value; _mainThreadDispatcher.DispatchOnMainThread(() => NotifyPropertyChanged()); }
+            set { _wipButtonActive = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         [UIValue("WipButtonText")]
         public string WipButtonText
         {
             get => _wipButtonText;
-            set { _wipButtonText = value; _mainThreadDispatcher.DispatchOnMainThread(() => NotifyPropertyChanged()); }
+            set { _wipButtonText = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         [UIValue("WipButtonHint")]
         public string WipButtonHint
         {
             get => _wipButtonHint;
-            set { _wipButtonHint = value; _mainThreadDispatcher.DispatchOnMainThread(() => NotifyPropertyChanged()); }
+            set { _wipButtonHint = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         public void Initialize()
         {
             if (wipbotButtonTransform != null) return;
-            BSMLParser.instance.Parse(
+            BsmlParser.Parse(
                 "<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>" +
                 "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='11' />" +
                 "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3' on-click='wipbot-click2' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='11' />" +

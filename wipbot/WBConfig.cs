@@ -12,7 +12,7 @@ namespace wipbot
         [UseConverter(typeof(ListConverter<string>))]
         [NonNullable]
         public virtual List<string> FileExtensionWhitelist { get; set; } = new List<string>() { "png", "jpg", "jpeg", "dat", "json", "ogg", "egg" };
-        public virtual string RequestCodeDownloadUrl { get; set; } = "http://catse.net/wips/%s.zip";
+        public virtual string RequestCodeDownloadUrl { get; set; } = "https://wipbot.com/wips/%s.zip";
         public virtual string RequestCodeCharacterWhitelist { get; set; } = "0123456789abcdefABCDEF";
         [UseConverter(typeof(ListConverter<string>))]
         [NonNullable]
@@ -26,8 +26,8 @@ namespace wipbot
         public virtual QueueLimits QueueLimits { get; set; } = new QueueLimits { User = 2, Subscriber = 2, Vip = 2, Moderator = 2 };
         public virtual int QueueSize { get; set; } = 9;
         public virtual int ButtonPositionX { get; set; } = 70;
-        public virtual int ButtonPositionY { get; set; } = -2;
-        public virtual string MessageInvalidRequest { get; set; } = "! Invalid request. To request a WIP, go to http://catse.net/wip or upload the .zip anywhere on discord or on google drive, copy the download link and use the command !wip (link)";
+        public virtual int ButtonPositionY { get; set; } = 4;
+        public virtual string MessageInvalidRequest { get; set; } = "! Invalid request. To request a WIP, go to https://wipbot.com/ or upload the .zip anywhere on discord or on google drive, copy the download link and use the command !wip (link)";
         public virtual string MessageWipRequested { get; set; } = "! WIP requested";
         public virtual string MessageUndoRequest { get; set; } = "! Removed your latest request from wip queue";
         public virtual string MessageDownloadStarted { get; set; } = "! WIP download started";
@@ -41,6 +41,7 @@ namespace wipbot
         public virtual string ErrorMessageBadExtension { get; set; } = "! Skipped %i files during extraction due to bad file extension";
         public virtual string ErrorMessageMissingInfoDat { get; set; } = "! Error: WIP missing info.dat";
         public virtual string ErrorMessageDownloadFailed { get; set; } = "! Error: WIP download failed";
+        public virtual string ErrorMessageRequestCodeNotFound { get; set; } = "! Error: WIP request code not found or expired";
         public virtual string ErrorMessageOther { get; set; } = "! Error: %s";
         public virtual string ErrorMessageLinkBlocked { get; set; } = "! Error: Your link was blocked by the channel's chat moderation settings";
         public virtual string ErrorMessageQueueFull { get; set; } = "! Error: The wip request queue is full";

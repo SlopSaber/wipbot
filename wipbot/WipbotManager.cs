@@ -233,20 +233,6 @@ namespace wipbot
                 }
 
                 SongCore.Loader.Instance.RefreshSongs(false);
-                SongCore.Loader.OnLevelPacksRefreshed += OnLevelsRefreshed;
-
-                void OnLevelsRefreshed()
-                {
-                    SongCore.Data.SongData customLevelData = SongCore.Loader.Instance.LoadCustomLevelSongData(wipFolderPath);
-                    CustomPreviewBeatmapLevel customPreviewLevel = SongCore.Loader.LoadSong(customLevelData.SaveData, wipFolderPath, out string hash);
-                    SongCore.Loader.OnLevelPacksRefreshed -= OnLevelsRefreshed;
-                    SegmentedControl control = categoryController.transform.Find("HorizontalIconSegmentedControl").GetComponent<IconSegmentedControl>();
-                    control.SelectCellWithNumber(3);
-                    categoryController.LevelFilterCategoryIconSegmentedControlDidSelectCell(control, 3);
-                    searchController.ResetCurrentFilterParams();
-                    filteringController.UpdateSecondChildControllerContent(SelectLevelCategoryViewController.LevelCategory.All);
-                    navigationController.SelectLevel(customPreviewLevel);
-                }
 
                 ChatIntegration.SendChatMessage(Config.MessageDownloadSuccess);
             }
@@ -257,7 +243,15 @@ namespace wipbot
             catch (Exception e)
             {
                 if (e is WebException)
+                {
+                    if (IsRequestCodeUrl(url) && IsNotFound((WebException)e))
+                    {
+                        ChatIntegration.SendChatMessage(Config.ErrorMessageRequestCodeNotFound);
+                        return;
+                    }
+
                     ChatIntegration.SendChatMessage(Config.ErrorMessageDownloadFailed);
+                }
                 else if (e is ThreadAbortException)
                     ChatIntegration.SendChatMessage(Config.MessageDownloadCancelled);
                 else
@@ -268,6 +262,20 @@ namespace wipbot
             {
                 WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
             }
+        }
+
+        private bool IsRequestCodeUrl(string url)
+        {
+            string[] requestCodeUrlParts = Config.RequestCodeDownloadUrl.Split(new[] { "%s" }, StringSplitOptions.None);
+            return requestCodeUrlParts.Length == 2
+                && url.StartsWith(requestCodeUrlParts[0])
+                && url.EndsWith(requestCodeUrlParts[1]);
+        }
+
+        private static bool IsNotFound(WebException exception)
+        {
+            return exception.Response is HttpWebResponse response
+                && response.StatusCode == HttpStatusCode.NotFound;
         }
 
         private static string GetFolderName(InfoDat songDat, DateTimeOffset dateTime)
