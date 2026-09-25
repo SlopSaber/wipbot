@@ -18,7 +18,6 @@ namespace wipbot.UI
     public class WipbotButtonController : INotifyPropertyChanged, IInitializable
     {
         private const float TitleUnderlineHeightScale = 1.6f;
-        private const float TitleUnderlineWidthScale = 1.13f;
         [Inject] private WBConfig Config { get; set; }
         [Inject] private BSMLParser BsmlParser { get; set; }
         public event PropertyChangedEventHandler PropertyChanged;
@@ -90,17 +89,10 @@ namespace wipbot.UI
         private static void SetUnderlineHeight(RectTransform button)
         {
             if (button == null) return;
-            var background = button.Find("BG");
-            if (background != null)
-            {
-                var roundSprite = Resources.FindObjectsOfTypeAll<Sprite>().FirstOrDefault(sprite => sprite.name == "RoundRect28");
-                if (roundSprite != null) background.GetComponent<Image>().sprite = roundSprite;
-            }
             var underline = button.Find("Underline");
             if (underline == null) return;
             var effect = underline.gameObject.AddComponent<TitleUnderlineHeightEffect>();
             effect.HeightScale = TitleUnderlineHeightScale;
-            effect.WidthScale = TitleUnderlineWidthScale;
         }
 
         [UIAction("wipbot-click2")]
@@ -135,19 +127,16 @@ namespace wipbot.UI
     internal sealed class TitleUnderlineHeightEffect : BaseMeshEffect
     {
         public float HeightScale { get; set; } = 1f;
-        public float WidthScale { get; set; } = 1f;
 
         public override void ModifyMesh(VertexHelper vertices)
         {
             if (!IsActive()) return;
-            float left = graphic.rectTransform.rect.xMin;
             float bottom = graphic.rectTransform.rect.yMin;
             UIVertex vertex = default;
             for (int i = 0; i < vertices.currentVertCount; i++)
             {
                 vertices.PopulateUIVertex(ref vertex, i);
                 var position = vertex.position;
-                position.x = left + (position.x - left) * WidthScale;
                 position.y = bottom + (position.y - bottom) * HeightScale;
                 vertex.position = position;
                 vertices.SetUIVertex(vertex, i);
