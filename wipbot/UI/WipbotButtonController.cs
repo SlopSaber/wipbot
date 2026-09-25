@@ -8,6 +8,7 @@ using System;
 using System.Linq;
 using System.Text;
 using UnityEngine;
+using UnityEngine.UI;
 using wipbot.Models;
 using Zenject;
 
@@ -16,7 +17,7 @@ namespace wipbot.UI
 {
     public class WipbotButtonController : INotifyPropertyChanged, IInitializable
     {
-        private const float TitleUnderlineHeightScale = 1.3f;
+        private const float TitleUnderlineExtraHeight = 0.18f;
         [Inject] private WBConfig Config { get; set; }
         [Inject] private BSMLParser BsmlParser { get; set; }
         public event PropertyChangedEventHandler PropertyChanged;
@@ -90,11 +91,9 @@ namespace wipbot.UI
             if (button == null) return;
             var underline = button.Find("Underline");
             if (underline == null) return;
-            var underlineRect = (RectTransform)underline;
-            var bottom = underlineRect.TransformPoint(new Vector3(0f, underlineRect.rect.yMin, 0f));
-            var scale = underline.localScale;
-            underline.localScale = new Vector3(scale.x, scale.y * TitleUnderlineHeightScale, scale.z);
-            underline.position += bottom - underlineRect.TransformPoint(new Vector3(0f, underlineRect.rect.yMin, 0f));
+            var shadow = underline.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(1f, 1f, 1f, 0.5f);
+            shadow.effectDistance = new Vector2(0f, TitleUnderlineExtraHeight);
         }
 
         [UIAction("wipbot-click2")]
