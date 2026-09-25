@@ -17,7 +17,7 @@ namespace wipbot.UI
 {
     public class WipbotButtonController : INotifyPropertyChanged, IInitializable
     {
-        private const float TitleUnderlineExtraHeight = 0.18f;
+        private const float TitleUnderlineHeightScale = 1.3f;
         [Inject] private WBConfig Config { get; set; }
         [Inject] private BSMLParser BsmlParser { get; set; }
         public event PropertyChangedEventHandler PropertyChanged;
@@ -91,9 +91,7 @@ namespace wipbot.UI
             if (button == null) return;
             var underline = button.Find("Underline");
             if (underline == null) return;
-            var shadow = underline.gameObject.AddComponent<Shadow>();
-            shadow.effectColor = new Color(1f, 1f, 1f, 0.5f);
-            shadow.effectDistance = new Vector2(0f, TitleUnderlineExtraHeight);
+            underline.gameObject.AddComponent<TitleUnderlineHeightEffect>().HeightScale = TitleUnderlineHeightScale;
         }
 
         [UIAction("wipbot-click2")]
@@ -123,6 +121,26 @@ namespace wipbot.UI
 
         [UIAction("wipbot-click")]
         void Asdf2() { }
+    }
+
+    internal sealed class TitleUnderlineHeightEffect : BaseMeshEffect
+    {
+        public float HeightScale { get; set; } = 1f;
+
+        public override void ModifyMesh(VertexHelper vertices)
+        {
+            if (!IsActive()) return;
+            float bottom = graphic.rectTransform.rect.yMin;
+            UIVertex vertex = default;
+            for (int i = 0; i < vertices.currentVertCount; i++)
+            {
+                vertices.PopulateUIVertex(ref vertex, i);
+                var position = vertex.position;
+                position.y = bottom + (position.y - bottom) * HeightScale;
+                vertex.position = position;
+                vertices.SetUIVertex(vertex, i);
+            }
+        }
     }
 
     internal sealed class WipTitleButtonVisibility : MonoBehaviour
