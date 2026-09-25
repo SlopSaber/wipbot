@@ -90,8 +90,11 @@ namespace wipbot.UI
             if (button == null) return;
             var underline = button.Find("Underline");
             if (underline == null) return;
+            var underlineRect = (RectTransform)underline;
+            var bottom = underlineRect.TransformPoint(new Vector3(0f, underlineRect.rect.yMin, 0f));
             var scale = underline.localScale;
             underline.localScale = new Vector3(scale.x, scale.y * TitleUnderlineHeightScale, scale.z);
+            underline.position += bottom - underlineRect.TransformPoint(new Vector3(0f, underlineRect.rect.yMin, 0f));
         }
 
         [UIAction("wipbot-click2")]
