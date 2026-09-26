@@ -45,28 +45,28 @@ namespace wipbot.UI
         public bool FakeButtonActive
         {
             get => _fakeButtonActive;
-            set { _fakeButtonActive = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
+            set { if (_fakeButtonActive == value) return; _fakeButtonActive = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         [UIValue("WipButtonActive")]
         public bool WipButtonActive
         {
             get => _wipButtonActive;
-            set { _wipButtonActive = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
+            set { if (_wipButtonActive == value) return; _wipButtonActive = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         [UIValue("WipButtonText")]
         public string WipButtonText
         {
             get => _wipButtonText;
-            set { _wipButtonText = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
+            set { if (_wipButtonText == value) return; _wipButtonText = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         [UIValue("WipButtonHint")]
         public string WipButtonHint
         {
             get => _wipButtonHint;
-            set { _wipButtonHint = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
+            set { if (_wipButtonHint == value) return; _wipButtonHint = value; UnityMainThreadTaskScheduler.Factory.StartNew(() => NotifyPropertyChanged()); }
         }
 
         public void Initialize()

@@ -3,7 +3,6 @@ using IPA.Utilities;
 using Newtonsoft.Json;
 using SiraUtil.Logging;
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -20,7 +19,7 @@ using Zenject;
 
 namespace wipbot
 {
-    internal class WipbotManager : IInitializable
+    internal class WipbotManager : IInitializable, IDisposable
     {
         [Inject] private WipbotButtonController WipbotButtonController { get; set; }
         [Inject] private WBConfig Config { get; set; }
@@ -28,22 +27,35 @@ namespace wipbot
         [Inject] private IChatIntegration ChatIntegration { get; set; }
 
         private readonly ExtendedQueue<QueueItem> WipQueue = new ExtendedQueue<QueueItem>();
-        private readonly BlockingCollection<QueueItem> DownloadQueue = new BlockingCollection<QueueItem>();
-        private Thread DownloadThread;
-
-        private bool IsDownloading = false;
+        private readonly object DownloadLock = new object();
+        private CancellationTokenSource DownloadCancellation;
+        private volatile bool IsDisposed;
 
         public void Initialize()
         {
             WipbotButtonController.OnWipButtonPressed += OnWipButtonPressed;
             ChatIntegration.OnMessageReceived += OnMessageReceived;
+            Application.quitting += Application_quitting;
             RenameOldSongFolders();
+        }
+
+        public void Dispose()
+        {
+            IsDisposed = true;
+            WipbotButtonController.OnWipButtonPressed -= OnWipButtonPressed;
+            ChatIntegration.OnMessageReceived -= OnMessageReceived;
+            Application.quitting -= Application_quitting;
+            Application_quitting();
         }
 
         public void OnMessageReceived(ChatMessage ChatMessage)
         {
+            if (string.IsNullOrEmpty(ChatMessage.Content) ||
+                !ChatMessage.Content.StartsWith(Config.CommandRequestWip, StringComparison.OrdinalIgnoreCase))
+                return;
+
             string[] msgSplit = ChatMessage.Content.Split(' ');
-            if (msgSplit[0].ToLower().StartsWith(Config.CommandRequestWip))
+            if (msgSplit[0].StartsWith(Config.CommandRequestWip, StringComparison.OrdinalIgnoreCase))
             {
                 int requestLimit = 
                     ChatMessage.IsBroadcaster ? 99 :
@@ -52,7 +64,7 @@ namespace wipbot
                     ChatMessage.IsSubscriber ? Config.QueueLimits.Subscriber :
                     Config.QueueLimits.User;
                 int requestCount = WipQueue.Count(item => item.UserName == ChatMessage.UserName);
-                if (msgSplit.Length > 1 && msgSplit[1].ToLower() == Config.KeywordUndoRequest)
+                if (msgSplit.Length > 1 && msgSplit[1].Equals(Config.KeywordUndoRequest, StringComparison.OrdinalIgnoreCase))
                 {
                     WipQueue.Remove(WipQueue.Where(x => x.UserName == ChatMessage.UserName).FirstOrDefault());
                 }
@@ -93,77 +105,86 @@ namespace wipbot
 
         private void OnWipButtonPressed()
         {
-            if (IsDownloading)
+            QueueItem item;
+            CancellationTokenSource cancellation;
+            lock (DownloadLock)
             {
-                IsDownloading = false;
-                DownloadThread.Abort();
-                return;
-            }
-
-            DownloadQueue.Add(WipQueue.Dequeue());
-            if (DownloadThread == null || !DownloadThread.IsAlive)
-            {
-                DownloadThread = new Thread(DownloadThreadLoop)
+                if (DownloadCancellation != null)
                 {
-                    IsBackground = true
-                };
-                DownloadThread.Start();
-
-                // Make sure that we dont leave threads behind after a game exit
-                // Make sure that we are not subscribed to the event multiple times
-                Application.quitting -= Application_quitting;
-                Application.quitting += Application_quitting;
-            }
-        }
-
-        private void Application_quitting() => DownloadThread.Abort();
-
-        private async void DownloadThreadLoop()
-        {
-            try
-            {
-                foreach (var item in DownloadQueue.GetConsumingEnumerable())
-                {
-                    IsDownloading = true;
-                    await DownloadAndExtractZipAsync(item.DownloadUrl, "UserData\\wipbot", Path.Combine(UnityGame.InstallPath, Config.WipFolder));
-                    IsDownloading = false;
+                    DownloadCancellation.Cancel();
+                    return;
                 }
+
+                if (WipQueue.Count == 0)
+                    return;
+
+                item = WipQueue.Dequeue();
+                cancellation = new CancellationTokenSource();
+                DownloadCancellation = cancellation;
             }
-            catch (ThreadAbortException)
+
+            _ = Task.Run(async () =>
             {
-                return;
-            }
-            catch (Exception e)
-            {
-                Logger.Error(e);
-            }
-            IsDownloading = false;
+                try
+                {
+                    await DownloadAndExtractZipAsync(item.DownloadUrl, "UserData\\wipbot", Path.Combine(UnityGame.InstallPath, Config.WipFolder), cancellation.Token);
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e);
+                }
+                finally
+                {
+                    lock (DownloadLock)
+                    {
+                        if (ReferenceEquals(DownloadCancellation, cancellation))
+                            DownloadCancellation = null;
+                    }
+                    cancellation.Dispose();
+                    if (!IsDisposed)
+                        WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+                }
+            });
         }
 
-        private async Task DownloadAndExtractZipAsync(string url, string downloadFolder, string extractFolder)
+        private void Application_quitting()
         {
-            string tempFolderName = "wipbot_" + Convert.ToString(DateTimeOffset.Now.ToUnixTimeSeconds(), 16);
-            string wipFolderPath = "";
+            lock (DownloadLock)
+                DownloadCancellation?.Cancel();
+        }
+
+        private async Task DownloadAndExtractZipAsync(string url, string downloadFolder, string extractFolder, CancellationToken token)
+        {
+            string tempFolderName = "wipbot_" + Guid.NewGuid().ToString("N");
+            string zipPath = Path.Combine(downloadFolder, tempFolderName + ".zip");
             try
             {
+                token.ThrowIfCancellationRequested();
                 WipbotButtonController.WipButtonText = "skip (0%)";
                 ChatIntegration.SendChatMessage(Config.MessageDownloadStarted);
-                WebClient webClient = new WebClient();
-                webClient.DownloadProgressChanged += (s, e) =>
-                {
-                    WipbotButtonController.WipButtonText = "skip (" + e.ProgressPercentage + "%)";
-                };
-                webClient.Headers.Add(HttpRequestHeader.UserAgent, "Beat Saber wipbot v1.14.0");
-
                 if (!Directory.Exists(downloadFolder)) Directory.CreateDirectory(downloadFolder);
-                await webClient.DownloadFileTaskAsync(new Uri(url), downloadFolder + "\\wipbot_tmp.zip");
+                token.ThrowIfCancellationRequested();
+                using (var webClient = new WebClient())
+                {
+                    int lastProgress = -1;
+                    webClient.DownloadProgressChanged += (s, e) =>
+                    {
+                        if (e.ProgressPercentage == lastProgress || token.IsCancellationRequested) return;
+                        lastProgress = e.ProgressPercentage;
+                        WipbotButtonController.WipButtonText = "skip (" + e.ProgressPercentage + "%)";
+                    };
+                    webClient.Headers.Add(HttpRequestHeader.UserAgent, "Beat Saber wipbot v1.14.0");
+                    using (token.Register(webClient.CancelAsync))
+                        await webClient.DownloadFileTaskAsync(new Uri(url), zipPath);
+                }
+                token.ThrowIfCancellationRequested();
 
                 if (Directory.Exists(Path.Combine(extractFolder, tempFolderName))) Directory.Delete(Path.Combine(extractFolder, tempFolderName), true);
                 Directory.CreateDirectory(Path.Combine(extractFolder, tempFolderName));
 
                 try
                 {
-                    using (ZipArchive archive = ZipFile.OpenRead(downloadFolder + "\\wipbot_tmp.zip"))
+                    using (ZipArchive archive = ZipFile.OpenRead(zipPath))
                     {
                         if (archive.Entries.Count > Config.ZipMaxEntries)
                         {
@@ -194,6 +215,7 @@ namespace wipbot
                         if (archive.Entries.All(entry => Config.FileExtensionWhitelist.Contains(Path.GetExtension(entry.FullName).Remove(0, 1))))
                         {
                             archive.ExtractToDirectory(Path.Combine(extractFolder, tempFolderName));
+                            token.ThrowIfCancellationRequested();
                         }
                         else
                         {
@@ -201,6 +223,7 @@ namespace wipbot
 
                             foreach (ZipArchiveEntry entry in archive.Entries)
                             {
+                                token.ThrowIfCancellationRequested();
                                 if (Config.FileExtensionWhitelist.Contains(Path.GetExtension(entry.FullName).Remove(0, 1))) entry.ExtractToFile(Path.Combine(extractFolder, tempFolderName, entry.FullName));
                                 else badFileTypesFound++;
                             }
@@ -212,13 +235,13 @@ namespace wipbot
 
                     // Rename the folder to the song name and date
                     var songDat = JsonConvert.DeserializeObject<InfoDat>(File.ReadAllText(Path.Combine(extractFolder, tempFolderName, "Info.dat")));
-                    wipFolderPath = Path.Combine(extractFolder, GetFolderName(songDat, DateTimeOffset.Now));
+                    var wipFolderPath = Path.Combine(extractFolder, GetFolderName(songDat, DateTimeOffset.Now));
                     Logger.Info($"Renaming {Path.Combine(extractFolder, tempFolderName)} to {wipFolderPath}");
                     Directory.Move(Path.Combine(extractFolder, tempFolderName), wipFolderPath);
                 }
-                catch (ThreadAbortException)
+                catch (OperationCanceledException)
                 {
-                    throw; // Rethrow so we can catch it in the thread loop
+                    throw;
                 }
                 catch (Exception e)
                 {
@@ -226,19 +249,14 @@ namespace wipbot
                     Logger.Error(e);
                     return;
                 }
-                finally
-                {
-                    File.Delete(downloadFolder + "\\wipbot_tmp.zip");
-                    if (Directory.Exists(Path.Combine(extractFolder, tempFolderName))) Directory.Delete(Path.Combine(extractFolder, tempFolderName), true);
-                }
-
+                token.ThrowIfCancellationRequested();
                 SongCore.Loader.Instance.RefreshSongs(false);
 
                 ChatIntegration.SendChatMessage(Config.MessageDownloadSuccess);
             }
-            catch (ThreadAbortException)
+            catch (Exception) when (token.IsCancellationRequested)
             {
-                throw; // Rethrow so we can catch it in the thread loop
+                ChatIntegration.SendChatMessage(Config.MessageDownloadCancelled);
             }
             catch (Exception e)
             {
@@ -252,15 +270,22 @@ namespace wipbot
 
                     ChatIntegration.SendChatMessage(Config.ErrorMessageDownloadFailed);
                 }
-                else if (e is ThreadAbortException)
-                    ChatIntegration.SendChatMessage(Config.MessageDownloadCancelled);
                 else
                     ChatIntegration.SendChatMessage(Config.ErrorMessageOther.Replace("%s", e.Message));
                 Logger.Error(e);
             }
             finally
             {
-                WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+                try
+                {
+                    File.Delete(zipPath);
+                    var temporarySongPath = Path.Combine(extractFolder, tempFolderName);
+                    if (Directory.Exists(temporarySongPath)) Directory.Delete(temporarySongPath, true);
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e);
+                }
             }
         }
 
