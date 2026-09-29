@@ -11,8 +11,11 @@ namespace wipbot
         public virtual int ZipMaxUncompressedSizeMB { get; set; } = 100;
         [UseConverter(typeof(ListConverter<string>))]
         [NonNullable]
-        public virtual List<string> FileExtensionWhitelist { get; set; } = new List<string>() { "png", "jpg", "jpeg", "dat", "json", "ogg", "egg" };
+        public virtual List<string> FileExtensionWhitelist { get; set; } = new List<string>() { "png", "jpg", "jpeg", "dat", "json", "ogg", "egg", "wav", "vivify", "" };
         public virtual string RequestCodeDownloadUrl { get; set; } = "https://wipbot.com/wips/%s.zip";
+        [UseConverter(typeof(ListConverter<string>))]
+        [NonNullable]
+        public virtual List<string> RequestCodePrefixDownloadUrlPairs { get; set; } = new List<string>() { "0", "https://wipbot.com/wips/%s.zip", "8", "https://wip.hawk.quest/upload/%s.zip", "9", "https://thnght.pro/upload/%s.zip" };
         public virtual string RequestCodeCharacterWhitelist { get; set; } = "0123456789abcdefABCDEF";
         [UseConverter(typeof(ListConverter<string>))]
         [NonNullable]
@@ -27,6 +30,9 @@ namespace wipbot
         public virtual int QueueSize { get; set; } = 9;
         public virtual int ButtonPositionX { get; set; } = 91;
         public virtual int ButtonPositionY { get; set; } = -7;
+        public virtual float ButtonFontSize { get; set; } = 3.5f;
+        public virtual float ButtonPrefWidth { get; set; } = 10.5f;
+        public virtual float ButtonPrefHeight { get; set; } = 7f;
         public virtual string MessageInvalidRequest { get; set; } = "! Invalid request. To request a WIP, go to https://wipbot.com/ or upload the .zip anywhere on discord or on google drive, copy the download link and use the command !wip (link)";
         public virtual string MessageWipRequested { get; set; } = "! WIP requested";
         public virtual string MessageUndoRequest { get; set; } = "! Removed your latest request from wip queue";

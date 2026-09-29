@@ -93,8 +93,18 @@ namespace wipbot
                     string wipUrl = msgSplit[1];
 
                     if (msgSplit[1].IndexOf(".") == -1)
+                    {
                         wipUrl = Config.RequestCodeDownloadUrl.Replace("%s", msgSplit[1]);
-                    for (int i = 0; i < Config.UrlFindReplace.Count; i += 2)
+                        var prefixes = Config.RequestCodePrefixDownloadUrlPairs;
+                        for (int i = 0; prefixes != null && i + 1 < prefixes.Count; i += 2)
+                        {
+                            if (string.IsNullOrEmpty(prefixes[i]) || string.IsNullOrEmpty(prefixes[i + 1]) ||
+                                !msgSplit[1].StartsWith(prefixes[i], StringComparison.OrdinalIgnoreCase)) continue;
+                            wipUrl = prefixes[i + 1].Replace("%s", msgSplit[1]);
+                            break;
+                        }
+                    }
+                    for (int i = 0; i + 1 < Config.UrlFindReplace.Count; i += 2)
                         wipUrl = wipUrl.Replace(Config.UrlFindReplace[i], Config.UrlFindReplace[i + 1]);
                     WipQueue.Enqueue(new QueueItem() { UserName = ChatMessage.UserName, DownloadUrl = wipUrl });
                     ChatIntegration.SendChatMessage(Config.MessageWipRequested);
@@ -212,7 +222,8 @@ namespace wipbot
                             return;
                         }
 
-                        if (archive.Entries.All(entry => Config.FileExtensionWhitelist.Contains(Path.GetExtension(entry.FullName).Remove(0, 1))))
+                        if (archive.Entries.All(entry => Config.FileExtensionWhitelist.Any(allowed =>
+                            string.Equals(allowed, Path.GetExtension(entry.FullName).TrimStart('.'), StringComparison.OrdinalIgnoreCase))))
                         {
                             archive.ExtractToDirectory(Path.Combine(extractFolder, tempFolderName));
                             token.ThrowIfCancellationRequested();
