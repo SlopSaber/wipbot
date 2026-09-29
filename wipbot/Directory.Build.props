@@ -1,9 +1,9 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <!-- This file contains project properties used by the build. -->
 <Project>
 	<PropertyGroup>
 		<ImportBSMTTargets>True</ImportBSMTTargets>
 		<BSMTProjectType>BSIPA</BSMTProjectType>
-		<GameDirectory Condition="'$(GameDirectory)' == ''">D:\BSManager\BSInstances\1.45.1</GameDirectory>
+		<GameDirectory Condition="'$(GameDirectory)' == ''">D:\BSManager\BSInstances\1.45.2</GameDirectory>
 	</PropertyGroup>
 </Project>
