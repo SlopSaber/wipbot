@@ -169,6 +169,9 @@ namespace wipbot
 
         private void Application_quitting()
         {
+            IsDisposed = true;
+            SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigration;
+            SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigrationRefresh;
             lock (DownloadLock)
                 DownloadCancellation?.Cancel();
         }
@@ -454,7 +457,10 @@ namespace wipbot
                     {
                         var name = Path.GetFileName(folder);
                         if (!name.StartsWith("wipbot_") || name.StartsWith("wipbot_(")) continue;
-                        var infoDat = JsonConvert.DeserializeObject<InfoDat>(File.ReadAllText(Path.Combine(folder, "info.dat")));
+                        InfoDat infoDat;
+                        using (var text = new StringReader(File.ReadAllText(Path.Combine(folder, "info.dat"))))
+                        using (var json = new JsonTextReader(text))
+                            infoDat = JsonSerializer.Create(new JsonSerializerSettings()).Deserialize<InfoDat>(json);
                         var target = Path.Combine(request.Directory, GetFolderName(infoDat,
                             DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(name.Remove(0, 7), 16)), request.Culture));
                         Directory.Move(folder, target);
