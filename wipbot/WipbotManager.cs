@@ -376,14 +376,7 @@ namespace wipbot
                 var request = new MigrationRequest(
                     Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "Beat Saber_Data", "CustomWIPLevels")),
                     CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentCulture.Clone()));
-                var previous = MigrationTask;
-                MigrationTask = previous == null
-                    ? Task.Factory.StartNew(MigrateFolders, request, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
-                    : previous.ContinueWith(completed =>
-                    {
-                        if (completed.IsFaulted) _ = completed.Exception;
-                        return MigrateFolders(request);
-                    }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                MigrationTask = QueueMigration(request);
                 _ = MigrationTask.ContinueWith(completed =>
                 {
                     try
@@ -437,6 +430,18 @@ namespace wipbot
             internal readonly string Directory;
             internal readonly CultureInfo Culture;
             internal MigrationRequest(string directory, CultureInfo culture) { Directory = directory; Culture = culture; }
+        }
+
+        private static Task<MigrationResult> QueueMigration(MigrationRequest request)
+        {
+            var previous = MigrationTask;
+            return previous == null
+                ? Task.Factory.StartNew(MigrateFolders, request, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
+                : previous.ContinueWith(completed =>
+                {
+                    if (completed.IsFaulted) _ = completed.Exception;
+                    return MigrateFolders(request);
+                }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         }
 
         private sealed class MigrationResult
