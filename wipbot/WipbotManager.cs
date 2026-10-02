@@ -3,6 +3,9 @@ using IPA.Utilities;
 using Newtonsoft.Json;
 using SiraUtil.Logging;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -10,6 +13,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using IPA.Utilities.Async;
 using UnityEngine;
 using wipbot.Interfaces;
 using wipbot.Models;
@@ -30,6 +34,10 @@ namespace wipbot
         private readonly object DownloadLock = new object();
         private CancellationTokenSource DownloadCancellation;
         private volatile bool IsDisposed;
+        private static Task<MigrationResult> MigrationTask;
+        private static bool MigrationNeedsRefresh;
+        private bool WaitingForMigration;
+        private bool WaitingForMigrationRefresh;
 
         public void Initialize()
         {
@@ -45,6 +53,8 @@ namespace wipbot
             WipbotButtonController.OnWipButtonPressed -= OnWipButtonPressed;
             ChatIntegration.OnMessageReceived -= OnMessageReceived;
             Application.quitting -= Application_quitting;
+            SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigration;
+            SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigrationRefresh;
             Application_quitting();
         }
 
@@ -314,7 +324,7 @@ namespace wipbot
                 && response.StatusCode == HttpStatusCode.NotFound;
         }
 
-        private static string GetFolderName(InfoDat songDat, DateTimeOffset dateTime)
+        private static string GetFolderName(InfoDat songDat, DateTimeOffset dateTime, CultureInfo culture = null)
         {
             var sb = new StringBuilder();
             sb.Append("wipbot_(");
@@ -322,7 +332,7 @@ namespace wipbot
             if (!string.IsNullOrEmpty(songDat.SongSubName)) sb.Append(songDat.SongSubName).Append(" - ");
             if (!string.IsNullOrEmpty(songDat.SongAuthorName)) sb.Append(songDat.SongAuthorName).Append(" - ");
             if (!string.IsNullOrEmpty(songDat.LevelAuthorName)) sb.Append(songDat.LevelAuthorName).Append(" - ");
-            sb.Remove(sb.Length - 3, 3).Append(")_").Append($"({dateTime:MMM dd, yyyy - HH:mm:ss})");
+            sb.Remove(sb.Length - 3, 3).Append(")_(").Append(dateTime.ToString("MMM dd, yyyy - HH:mm:ss", culture ?? CultureInfo.CurrentCulture)).Append(")");
             var newFolderName = sb.ToString();
             return SanitizePath(newFolderName);
         }
@@ -339,43 +349,120 @@ namespace wipbot
 
         internal void RenameOldSongFolders()
         {
+            if (IsDisposed || WaitingForMigration) return;
+            if (!SongCore.Loader.AreSongsLoaded || SongCore.Loader.AreSongsLoading)
+            {
+                WaitingForMigration = true;
+                SongCore.Loader.SongsLoadedEvent += OnSongsReadyForMigration;
+                return;
+            }
+            StartMigration();
+        }
+
+        private void OnSongsReadyForMigration(SongCore.Loader loader, ConcurrentDictionary<string, BeatmapLevel> levels)
+        {
+            SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigration;
+            WaitingForMigration = false;
+            if (!IsDisposed) StartMigration();
+        }
+
+        private void StartMigration()
+        {
             try
             {
-                int renamedFolders = 0;
-                var wipDirectory = Path.Combine(Environment.CurrentDirectory, "Beat Saber_Data", "CustomWIPLevels");
-                // A fresh game instance has no WIP folders to migrate yet.
-                if (!Directory.Exists(wipDirectory))
-                    return;
-
-                Directory.GetDirectories(wipDirectory).ToList().ForEach(wipFolder =>
-                {
-                    if (Path.GetFileName(wipFolder).StartsWith("wipbot_") && !Path.GetFileName(wipFolder).StartsWith("wipbot_("))
+                var request = new MigrationRequest(
+                    Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "Beat Saber_Data", "CustomWIPLevels")),
+                    CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentCulture.Clone()));
+                var previous = MigrationTask;
+                MigrationTask = previous == null
+                    ? Task.Factory.StartNew(MigrateFolders, request, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
+                    : previous.ContinueWith(completed =>
                     {
-                        var infoDat = JsonConvert.DeserializeObject<InfoDat>(File.ReadAllText(Path.Combine(wipFolder, "info.dat")));
-                        var newFolderPath = Path.Combine(wipDirectory, GetFolderName(infoDat, DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(Path.GetFileName(wipFolder).Remove(0, 7), 16))));
-                        Directory.Move(wipFolder, newFolderPath);
-                        renamedFolders++;
-                        Logger.Info($"Renamed {Path.GetFileName(wipFolder)} to {Path.GetFileName(newFolderPath)}");
-                    }
-                });
-
-                if (renamedFolders > 0)
+                        if (completed.IsFaulted) _ = completed.Exception;
+                        return MigrateFolders(request);
+                    }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                _ = MigrationTask.ContinueWith(completed =>
                 {
-                    Logger.Info($"Renamed {renamedFolders} old wip song folders to new schema");
-
-                    // Trigger a full song reload if legacy named maps are renamed
-                    SongCore.Loader.OnLevelPacksRefreshed += RefreshSongs;
-                    void RefreshSongs()
+                    try
                     {
-                        SongCore.Loader.OnLevelPacksRefreshed -= RefreshSongs;
-                        SongCore.Loader.Instance.RefreshSongs(true);
+                        var result = completed.GetAwaiter().GetResult();
+                        if (result.Error == null && result.Messages.Length > 0) MigrationNeedsRefresh = true;
+                        if (IsDisposed) return;
+                        foreach (var message in result.Messages) Logger.Info(message);
+                        if (result.Error != null)
+                        {
+                            Logger.Error(result.Error);
+                            return;
+                        }
+                        if (result.Messages.Length > 0)
+                            Logger.Info($"Renamed {result.Messages.Length} old wip song folders to new schema");
+                        RefreshMigratedSongs();
                     }
-                }
+                    catch (Exception e) { if (!IsDisposed) Logger.Error(e); }
+                }, CancellationToken.None, TaskContinuationOptions.None, UnityMainThreadTaskScheduler.Default);
             }
-            catch (Exception e)
+            catch (Exception e) { if (!IsDisposed) Logger.Error(e); }
+        }
+
+        private void RefreshMigratedSongs()
+        {
+            if (IsDisposed || !MigrationNeedsRefresh) return;
+            if (!SongCore.Loader.AreSongsLoaded || SongCore.Loader.AreSongsLoading)
             {
-                Logger.Error(e);
+                if (!WaitingForMigrationRefresh)
+                {
+                    WaitingForMigrationRefresh = true;
+                    SongCore.Loader.SongsLoadedEvent += OnSongsReadyForMigrationRefresh;
+                }
+                return;
             }
+            var loader = SongCore.Loader.Instance;
+            if (loader == null) return;
+            MigrationNeedsRefresh = false;
+            loader.RefreshSongs(true);
+        }
+
+        private void OnSongsReadyForMigrationRefresh(SongCore.Loader loader, ConcurrentDictionary<string, BeatmapLevel> levels)
+        {
+            SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigrationRefresh;
+            WaitingForMigrationRefresh = false;
+            RefreshMigratedSongs();
+        }
+
+        private sealed class MigrationRequest
+        {
+            internal readonly string Directory;
+            internal readonly CultureInfo Culture;
+            internal MigrationRequest(string directory, CultureInfo culture) { Directory = directory; Culture = culture; }
+        }
+
+        private sealed class MigrationResult
+        {
+            internal readonly string[] Messages;
+            internal readonly Exception Error;
+            internal MigrationResult(string[] messages, Exception error) { Messages = messages; Error = error; }
+        }
+
+        private static MigrationResult MigrateFolders(object state)
+        {
+            var request = (MigrationRequest)state;
+            var messages = new List<string>();
+            try
+            {
+                if (Directory.Exists(request.Directory))
+                    foreach (var folder in Directory.GetDirectories(request.Directory))
+                    {
+                        var name = Path.GetFileName(folder);
+                        if (!name.StartsWith("wipbot_") || name.StartsWith("wipbot_(")) continue;
+                        var infoDat = JsonConvert.DeserializeObject<InfoDat>(File.ReadAllText(Path.Combine(folder, "info.dat")));
+                        var target = Path.Combine(request.Directory, GetFolderName(infoDat,
+                            DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(name.Remove(0, 7), 16)), request.Culture));
+                        Directory.Move(folder, target);
+                        messages.Add($"Renamed {name} to {Path.GetFileName(target)}");
+                    }
+                return new MigrationResult(messages.ToArray(), null);
+            }
+            catch (Exception e) { return new MigrationResult(messages.ToArray(), e); }
         }
     }
 }
