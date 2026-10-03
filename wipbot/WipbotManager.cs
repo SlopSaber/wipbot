@@ -23,7 +23,7 @@ using Zenject;
 
 namespace wipbot
 {
-    internal class WipbotManager : IInitializable, IDisposable
+    internal class WipbotManager : IInitializable, ITickable, IDisposable
     {
         [Inject] private WipbotButtonController WipbotButtonController { get; set; }
         [Inject] private WBConfig Config { get; set; }
@@ -31,8 +31,8 @@ namespace wipbot
         [Inject] private IChatIntegration ChatIntegration { get; set; }
 
         private readonly ExtendedQueue<QueueItem> WipQueue = new ExtendedQueue<QueueItem>();
-        private readonly object DownloadLock = new object();
-        private CancellationTokenSource DownloadCancellation;
+        private readonly ConcurrentQueue<ChatMessage> PendingMessages = new ConcurrentQueue<ChatMessage>();
+        private DownloadOperation ActiveDownload;
         private volatile bool IsDisposed;
         private static Task<MigrationResult> MigrationTask;
         private static bool MigrationNeedsRefresh;
@@ -58,7 +58,13 @@ namespace wipbot
             Application_quitting();
         }
 
-        public void OnMessageReceived(ChatMessage ChatMessage)
+        public void OnMessageReceived(ChatMessage message)
+        {
+            if (!IsDisposed && !string.IsNullOrEmpty(message.Content))
+                PendingMessages.Enqueue(message);
+        }
+
+        private void HandleMessageReceived(ChatMessage ChatMessage)
         {
             if (string.IsNullOrEmpty(ChatMessage.Content) ||
                 !ChatMessage.Content.StartsWith(Config.CommandRequestWip, StringComparison.OrdinalIgnoreCase))
@@ -125,46 +131,97 @@ namespace wipbot
 
         private void OnWipButtonPressed()
         {
-            QueueItem item;
-            CancellationTokenSource cancellation;
-            lock (DownloadLock)
+            if (IsDisposed) return;
+            if (ActiveDownload != null)
             {
-                if (DownloadCancellation != null)
-                {
-                    DownloadCancellation.Cancel();
-                    return;
-                }
+                ActiveDownload.Cancel();
+                return;
+            }
+            if (WipQueue.Count == 0) return;
 
-                if (WipQueue.Count == 0)
-                    return;
+            var item = WipQueue.Dequeue();
+            try
+            {
+                var request = new DownloadRequest(item.DownloadUrl,
+                    Path.GetFullPath("UserData\\wipbot"),
+                    Path.GetFullPath(Path.Combine(UnityGame.InstallPath, Config.WipFolder)),
+                    Config, IsRequestCodeUrl(item.DownloadUrl),
+                    CultureInfo.ReadOnly((CultureInfo)CultureInfo.CurrentCulture.Clone()));
+                var operation = new DownloadOperation(request);
+                operation.Start();
+                ActiveDownload = operation;
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e);
+                WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+            }
+        }
 
-                item = WipQueue.Dequeue();
-                cancellation = new CancellationTokenSource();
-                DownloadCancellation = cancellation;
+        public void Tick()
+        {
+            if (IsDisposed) return;
+            while (!IsDisposed && PendingMessages.TryDequeue(out var message))
+            {
+                try { HandleMessageReceived(message); }
+                catch (Exception e) { Logger.Error(e); }
             }
 
-            _ = Task.Run(async () =>
+            if (IsDisposed) return;
+            var operation = ActiveDownload;
+            if (operation == null) return;
+            DrainDownloadEvents(operation);
+            if (IsDisposed || !ReferenceEquals(ActiveDownload, operation)) return;
+            if (!operation.Task.IsCompleted) return;
+
+            try { operation.Task.GetAwaiter().GetResult(); }
+            catch (Exception e) { Logger.Error(e); }
+            DrainDownloadEvents(operation);
+            if (IsDisposed || !ReferenceEquals(ActiveDownload, operation)) return;
+            ActiveDownload = null;
+            WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+        }
+
+        private void DrainDownloadEvents(DownloadOperation operation)
+        {
+            while (!IsDisposed && ReferenceEquals(ActiveDownload, operation)
+                && operation.Events.TryDequeue(out var update))
             {
                 try
                 {
-                    await DownloadAndExtractZipAsync(item.DownloadUrl, "UserData\\wipbot", Path.Combine(UnityGame.InstallPath, Config.WipFolder), cancellation.Token);
+                    switch (update.Kind)
+                    {
+                        case DownloadEventKind.Progress:
+                            if (!operation.Token.IsCancellationRequested)
+                                WipbotButtonController.WipButtonText = update.Message;
+                            break;
+                        case DownloadEventKind.Message:
+                            ChatIntegration.SendChatMessage(update.Message);
+                            break;
+                        case DownloadEventKind.Info:
+                            Logger.Info(update.Message);
+                            break;
+                        case DownloadEventKind.Error:
+                            Logger.Error(update.Exception);
+                            break;
+                        case DownloadEventKind.Success:
+                            if (operation.Token.IsCancellationRequested)
+                                ChatIntegration.SendChatMessage(operation.Request.MessageDownloadCancelled);
+                            else
+                            {
+                                SongCore.Loader.Instance.RefreshSongs(false);
+                                ChatIntegration.SendChatMessage(operation.Request.MessageDownloadSuccess);
+                            }
+                            break;
+                    }
                 }
                 catch (Exception e)
                 {
+                    if (update.Kind == DownloadEventKind.Success)
+                        ChatIntegration.SendChatMessage(operation.Request.ErrorMessageOther.Replace("%s", e.Message));
                     Logger.Error(e);
                 }
-                finally
-                {
-                    lock (DownloadLock)
-                    {
-                        if (ReferenceEquals(DownloadCancellation, cancellation))
-                            DownloadCancellation = null;
-                    }
-                    cancellation.Dispose();
-                    if (!IsDisposed)
-                        WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
-                }
-            });
+            }
         }
 
         private void Application_quitting()
@@ -172,19 +229,25 @@ namespace wipbot
             IsDisposed = true;
             SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigration;
             SongCore.Loader.SongsLoadedEvent -= OnSongsReadyForMigrationRefresh;
-            lock (DownloadLock)
-                DownloadCancellation?.Cancel();
+            ActiveDownload?.Cancel();
+            ActiveDownload = null;
+            while (PendingMessages.TryDequeue(out _)) { }
         }
 
-        private async Task DownloadAndExtractZipAsync(string url, string downloadFolder, string extractFolder, CancellationToken token)
+        private static async Task DownloadAndExtractZipAsync(DownloadOperation operation)
         {
+            var request = operation.Request;
+            var url = request.Url;
+            var downloadFolder = request.DownloadFolder;
+            var extractFolder = request.ExtractFolder;
+            var token = operation.Token;
             string tempFolderName = "wipbot_" + Guid.NewGuid().ToString("N");
             string zipPath = Path.Combine(downloadFolder, tempFolderName + ".zip");
             try
             {
                 token.ThrowIfCancellationRequested();
-                WipbotButtonController.WipButtonText = "skip (0%)";
-                ChatIntegration.SendChatMessage(Config.MessageDownloadStarted);
+                operation.Publish(DownloadEventKind.Progress, "skip (0%)");
+                operation.Publish(DownloadEventKind.Message, request.MessageDownloadStarted);
                 if (!Directory.Exists(downloadFolder)) Directory.CreateDirectory(downloadFolder);
                 token.ThrowIfCancellationRequested();
                 using (var webClient = new WebClient())
@@ -194,11 +257,11 @@ namespace wipbot
                     {
                         if (e.ProgressPercentage == lastProgress || token.IsCancellationRequested) return;
                         lastProgress = e.ProgressPercentage;
-                        WipbotButtonController.WipButtonText = "skip (" + e.ProgressPercentage + "%)";
+                        operation.Publish(DownloadEventKind.Progress, "skip (" + e.ProgressPercentage + "%)");
                     };
                     webClient.Headers.Add(HttpRequestHeader.UserAgent, "Beat Saber wipbot v1.14.0");
                     using (token.Register(webClient.CancelAsync))
-                        await webClient.DownloadFileTaskAsync(new Uri(url), zipPath);
+                        await webClient.DownloadFileTaskAsync(new Uri(url), zipPath).ConfigureAwait(false);
                 }
                 token.ThrowIfCancellationRequested();
 
@@ -209,33 +272,33 @@ namespace wipbot
                 {
                     using (ZipArchive archive = ZipFile.OpenRead(zipPath))
                     {
-                        if (archive.Entries.Count > Config.ZipMaxEntries)
+                        if (archive.Entries.Count > request.ZipMaxEntries)
                         {
-                            ChatIntegration.SendChatMessage(Config.ErrorMessageTooManyEntries.Replace("%i", "" + Config.ZipMaxEntries));
+                            operation.Publish(DownloadEventKind.Message, request.ErrorMessageTooManyEntries.Replace("%i", "" + request.ZipMaxEntries));
                             return;
                         }
 
                         // We can do this here because we dont need to extract the zip to check this
                         if (!archive.Entries.Any(entry => Path.GetFileName(entry.FullName) == "Info.dat" ))
                         {
-                            ChatIntegration.SendChatMessage(Config.ErrorMessageMissingInfoDat);
+                            operation.Publish(DownloadEventKind.Message, request.ErrorMessageMissingInfoDat);
                             return;
                         }
 
                         // If an entry is a folder, dont extract it, could be a zip bomb
                         if (archive.Entries.Any(entry => entry.FullName.EndsWith("/")))
                         {
-                            ChatIntegration.SendChatMessage(Config.ErrorMessageZipContainsSubfolders);
+                            operation.Publish(DownloadEventKind.Message, request.ErrorMessageZipContainsSubfolders);
                             return;
                         }
 
-                        if (archive.Entries.Sum(entry => entry.Length) > (Config.ZipMaxUncompressedSizeMB * 1000000))
+                        if (archive.Entries.Sum(entry => entry.Length) > (request.ZipMaxUncompressedSizeMB * 1000000))
                         {
-                            ChatIntegration.SendChatMessage(Config.ErrorMessageMaxLength.Replace("%i", "" + Config.ZipMaxUncompressedSizeMB));
+                            operation.Publish(DownloadEventKind.Message, request.ErrorMessageMaxLength.Replace("%i", "" + request.ZipMaxUncompressedSizeMB));
                             return;
                         }
 
-                        if (archive.Entries.All(entry => Config.FileExtensionWhitelist.Any(allowed =>
+                        if (archive.Entries.All(entry => request.FileExtensionWhitelist.Any(allowed =>
                             string.Equals(allowed, Path.GetExtension(entry.FullName).TrimStart('.'), StringComparison.OrdinalIgnoreCase))))
                         {
                             archive.ExtractToDirectory(Path.Combine(extractFolder, tempFolderName));
@@ -248,19 +311,19 @@ namespace wipbot
                             foreach (ZipArchiveEntry entry in archive.Entries)
                             {
                                 token.ThrowIfCancellationRequested();
-                                if (Config.FileExtensionWhitelist.Contains(Path.GetExtension(entry.FullName).Remove(0, 1))) entry.ExtractToFile(Path.Combine(extractFolder, tempFolderName, entry.FullName));
+                                if (request.FileExtensionWhitelist.Contains(Path.GetExtension(entry.FullName).Remove(0, 1))) entry.ExtractToFile(Path.Combine(extractFolder, tempFolderName, entry.FullName));
                                 else badFileTypesFound++;
                             }
 
                             if (badFileTypesFound > 0)
-                                ChatIntegration.SendChatMessage(Config.ErrorMessageBadExtension.Replace("%i", "" + badFileTypesFound));
+                                operation.Publish(DownloadEventKind.Message, request.ErrorMessageBadExtension.Replace("%i", "" + badFileTypesFound));
                         }
                     }
 
                     // Rename the folder to the song name and date
                     var songDat = JsonConvert.DeserializeObject<InfoDat>(File.ReadAllText(Path.Combine(extractFolder, tempFolderName, "Info.dat")));
-                    var wipFolderPath = Path.Combine(extractFolder, GetFolderName(songDat, DateTimeOffset.Now));
-                    Logger.Info($"Renaming {Path.Combine(extractFolder, tempFolderName)} to {wipFolderPath}");
+                    var wipFolderPath = Path.Combine(extractFolder, GetFolderName(songDat, DateTimeOffset.Now, request.Culture));
+                    operation.Publish(DownloadEventKind.Info, $"Renaming {Path.Combine(extractFolder, tempFolderName)} to {wipFolderPath}");
                     Directory.Move(Path.Combine(extractFolder, tempFolderName), wipFolderPath);
                 }
                 catch (OperationCanceledException)
@@ -269,34 +332,32 @@ namespace wipbot
                 }
                 catch (Exception e)
                 {
-                    ChatIntegration.SendChatMessage(Config.ErrorMessageExtractionFailed);
-                    Logger.Error(e);
+                    operation.Publish(DownloadEventKind.Message, request.ErrorMessageExtractionFailed);
+                    operation.PublishError(e);
                     return;
                 }
                 token.ThrowIfCancellationRequested();
-                SongCore.Loader.Instance.RefreshSongs(false);
-
-                ChatIntegration.SendChatMessage(Config.MessageDownloadSuccess);
+                operation.Publish(DownloadEventKind.Success);
             }
             catch (Exception) when (token.IsCancellationRequested)
             {
-                ChatIntegration.SendChatMessage(Config.MessageDownloadCancelled);
+                operation.Publish(DownloadEventKind.Message, request.MessageDownloadCancelled);
             }
             catch (Exception e)
             {
                 if (e is WebException)
                 {
-                    if (IsRequestCodeUrl(url) && IsNotFound((WebException)e))
+                    if (request.IsRequestCodeUrl && IsNotFound((WebException)e))
                     {
-                        ChatIntegration.SendChatMessage(Config.ErrorMessageRequestCodeNotFound);
+                        operation.Publish(DownloadEventKind.Message, request.ErrorMessageRequestCodeNotFound);
                         return;
                     }
 
-                    ChatIntegration.SendChatMessage(Config.ErrorMessageDownloadFailed);
+                    operation.Publish(DownloadEventKind.Message, request.ErrorMessageDownloadFailed);
                 }
                 else
-                    ChatIntegration.SendChatMessage(Config.ErrorMessageOther.Replace("%s", e.Message));
-                Logger.Error(e);
+                    operation.Publish(DownloadEventKind.Message, request.ErrorMessageOther.Replace("%s", e.Message));
+                operation.PublishError(e);
             }
             finally
             {
@@ -308,8 +369,138 @@ namespace wipbot
                 }
                 catch (Exception e)
                 {
-                    Logger.Error(e);
+                    operation.PublishError(e);
                 }
+            }
+        }
+
+        private sealed class DownloadRequest
+        {
+            public readonly string Url;
+            public readonly string DownloadFolder;
+            public readonly string ExtractFolder;
+            public readonly string[] FileExtensionWhitelist;
+            public readonly bool IsRequestCodeUrl;
+            public readonly CultureInfo Culture;
+            public readonly int ZipMaxEntries;
+            public readonly int ZipMaxUncompressedSizeMB;
+            public readonly string MessageDownloadStarted;
+            public readonly string MessageDownloadSuccess;
+            public readonly string MessageDownloadCancelled;
+            public readonly string ErrorMessageTooManyEntries;
+            public readonly string ErrorMessageMissingInfoDat;
+            public readonly string ErrorMessageZipContainsSubfolders;
+            public readonly string ErrorMessageMaxLength;
+            public readonly string ErrorMessageBadExtension;
+            public readonly string ErrorMessageExtractionFailed;
+            public readonly string ErrorMessageRequestCodeNotFound;
+            public readonly string ErrorMessageDownloadFailed;
+            public readonly string ErrorMessageOther;
+
+            public DownloadRequest(string url, string downloadFolder, string extractFolder,
+                WBConfig config, bool isRequestCodeUrl, CultureInfo culture)
+            {
+                Url = url;
+                DownloadFolder = downloadFolder;
+                ExtractFolder = extractFolder;
+                FileExtensionWhitelist = config.FileExtensionWhitelist.ToArray();
+                IsRequestCodeUrl = isRequestCodeUrl;
+                Culture = culture;
+                ZipMaxEntries = config.ZipMaxEntries;
+                ZipMaxUncompressedSizeMB = config.ZipMaxUncompressedSizeMB;
+                MessageDownloadStarted = config.MessageDownloadStarted;
+                MessageDownloadSuccess = config.MessageDownloadSuccess;
+                MessageDownloadCancelled = config.MessageDownloadCancelled;
+                ErrorMessageTooManyEntries = config.ErrorMessageTooManyEntries;
+                ErrorMessageMissingInfoDat = config.ErrorMessageMissingInfoDat;
+                ErrorMessageZipContainsSubfolders = config.ErrorMessageZipContainsSubfolders;
+                ErrorMessageMaxLength = config.ErrorMessageMaxLength;
+                ErrorMessageBadExtension = config.ErrorMessageBadExtension;
+                ErrorMessageExtractionFailed = config.ErrorMessageExtractionFailed;
+                ErrorMessageRequestCodeNotFound = config.ErrorMessageRequestCodeNotFound;
+                ErrorMessageDownloadFailed = config.ErrorMessageDownloadFailed;
+                ErrorMessageOther = config.ErrorMessageOther;
+            }
+        }
+
+        private enum DownloadEventKind { Progress, Message, Info, Error, Success }
+
+        private sealed class DownloadEvent
+        {
+            public readonly DownloadEventKind Kind;
+            public readonly string Message;
+            public readonly Exception Exception;
+
+            public DownloadEvent(DownloadEventKind kind, string message = null, Exception exception = null)
+            {
+                Kind = kind;
+                Message = message;
+                Exception = exception;
+            }
+        }
+
+        private sealed class DownloadOperation
+        {
+            public readonly DownloadRequest Request;
+            public readonly ConcurrentQueue<DownloadEvent> Events = new ConcurrentQueue<DownloadEvent>();
+            public readonly CancellationToken Token;
+            private readonly CancellationTokenSource Cancellation = new CancellationTokenSource();
+            private readonly object CancellationLock = new object();
+            private bool Finished;
+            public Task Task { get; private set; }
+
+            public DownloadOperation(DownloadRequest request)
+            {
+                Request = request;
+                Token = Cancellation.Token;
+            }
+
+            public void Start()
+            {
+                try
+                {
+                    Task = System.Threading.Tasks.Task.Run(Execute);
+                    Task.ContinueWith(task => { var ignored = task.Exception; }, CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                }
+                catch
+                {
+                    Finish();
+                    throw;
+                }
+            }
+
+            private async Task Execute()
+            {
+                try { await DownloadAndExtractZipAsync(this).ConfigureAwait(false); }
+                catch (Exception e) { PublishError(e); }
+                finally { Finish(); }
+            }
+
+            public void Cancel()
+            {
+                lock (CancellationLock)
+                    if (!Finished) Cancellation.Cancel();
+            }
+
+            private void Finish()
+            {
+                lock (CancellationLock)
+                {
+                    Finished = true;
+                    Cancellation.Dispose();
+                }
+            }
+
+            public void Publish(DownloadEventKind kind, string message = null)
+            {
+                Events.Enqueue(new DownloadEvent(kind, message));
+            }
+
+            public void PublishError(Exception exception)
+            {
+                Events.Enqueue(new DownloadEvent(DownloadEventKind.Error, exception: exception));
             }
         }
 
