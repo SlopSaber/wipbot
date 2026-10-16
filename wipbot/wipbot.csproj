@@ -3,7 +3,7 @@
   <PropertyGroup>
     <ImportBSMTTargets>true</ImportBSMTTargets>
     <BSMTProjectType>BSIPA</BSMTProjectType>
-    <GameDirectory>D:\BSManager\BSInstances\1.45.2</GameDirectory>
+    <GameDirectory>D:\BSManager\BSInstances\1.45.3</GameDirectory>
     <CopyPDB>false</CopyPDB>
     <DisableCopyToGame>false</DisableCopyToGame>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -190,4 +190,5 @@
     </PackageReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Import Project="..\BSIPA.Layout.targets" Condition="Exists('$(GameDirectory)\IPA\Data\Managed\IPA.Loader.dll') OR Exists('$(BeatSaberDir)\IPA\Data\Managed\IPA.Loader.dll')" />
 </Project>
