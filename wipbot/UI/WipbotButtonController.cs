@@ -1,5 +1,6 @@
 ﻿using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
+using System.Collections;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -87,7 +88,7 @@ namespace wipbot.UI
             SetUnderlineHeight(activeWipbotButtonTransform);
             var levelSelection = Resources.FindObjectsOfTypeAll<LevelSelectionNavigationController>().First();
             var wipRoot = wipbotRootTransform.gameObject;
-            title.gameObject.AddComponent<WipTitleButtonVisibility>().Initialize(wipRoot, levelSelection.gameObject);
+            title.gameObject.AddComponent<WipTitleButtonVisibility>().Initialize(wipRoot, levelSelection.gameObject, wipbotButtonTransform, activeWipbotButtonTransform);
         }
 
         private static void SetUnderlineHeight(RectTransform button)
@@ -154,11 +155,36 @@ namespace wipbot.UI
         private GameObject levelSelection;
         private bool wasVisible;
 
-        internal void Initialize(GameObject root, GameObject menu)
+        internal void Initialize(GameObject root, GameObject menu, RectTransform regularButton, RectTransform queuedButton)
         {
             buttonRoot = root;
             levelSelection = menu;
             UpdateVisibility();
+            StartCoroutine(MatchButtonLayout(regularButton, queuedButton));
+        }
+
+        private static IEnumerator MatchButtonLayout(RectTransform regularButton, RectTransform queuedButton)
+        {
+            // BSML destroys the prefab LayoutElement at the end of the frame.
+            yield return null;
+            if (regularButton == null || queuedButton == null) yield break;
+            LayoutRebuilder.ForceRebuildLayoutImmediate(regularButton);
+            var queuedLayout = queuedButton.GetComponent<LayoutElement>();
+            queuedLayout.minHeight = regularButton.rect.height;
+            queuedLayout.preferredHeight = regularButton.rect.height;
+            MatchButtonRect(regularButton, queuedButton);
+            MatchButtonRect(regularButton.Find("BG") as RectTransform, queuedButton.Find("BG") as RectTransform);
+            MatchButtonRect(regularButton.Find("Content") as RectTransform, queuedButton.Find("Content") as RectTransform);
+        }
+
+        private static void MatchButtonRect(RectTransform source, RectTransform target)
+        {
+            if (source == null || target == null) return;
+            target.anchorMin = source.anchorMin;
+            target.anchorMax = source.anchorMax;
+            target.pivot = source.pivot;
+            target.sizeDelta = source.sizeDelta;
+            target.anchoredPosition = source.anchoredPosition;
         }
 
         private void Update()
