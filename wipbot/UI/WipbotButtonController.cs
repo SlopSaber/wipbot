@@ -1,6 +1,5 @@
 ﻿using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
-using System.Collections;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -154,20 +153,22 @@ namespace wipbot.UI
         private GameObject buttonRoot;
         private GameObject levelSelection;
         private bool wasVisible;
+        private RectTransform regularButton;
+        private RectTransform queuedButton;
+        private int layoutReadyFrame = -1;
+        private bool layoutMatched;
 
         internal void Initialize(GameObject root, GameObject menu, RectTransform regularButton, RectTransform queuedButton)
         {
             buttonRoot = root;
             levelSelection = menu;
+            this.regularButton = regularButton;
+            this.queuedButton = queuedButton;
             UpdateVisibility();
-            StartCoroutine(MatchButtonLayout(regularButton, queuedButton));
         }
 
-        private static IEnumerator MatchButtonLayout(RectTransform regularButton, RectTransform queuedButton)
+        private static void MatchButtonLayout(RectTransform regularButton, RectTransform queuedButton)
         {
-            // BSML destroys the prefab LayoutElement at the end of the frame.
-            yield return null;
-            if (regularButton == null || queuedButton == null) yield break;
             LayoutRebuilder.ForceRebuildLayoutImmediate(regularButton);
             var queuedLayout = queuedButton.GetComponent<LayoutElement>();
             queuedLayout.minHeight = regularButton.rect.height;
@@ -190,6 +191,29 @@ namespace wipbot.UI
         private void Update()
         {
             UpdateVisibility();
+            if (layoutMatched) return;
+            if (buttonRoot == null || !buttonRoot.activeInHierarchy)
+            {
+                layoutReadyFrame = -1;
+                return;
+            }
+
+            // Measure after the first visible frame, once BSML's deferred prefab cleanup is done.
+            if (layoutReadyFrame < 0)
+            {
+                layoutReadyFrame = Time.frameCount;
+                return;
+            }
+
+            if (Time.frameCount <= layoutReadyFrame || regularButton == null || queuedButton == null) return;
+            MatchButtonLayout(regularButton, queuedButton);
+            layoutMatched = true;
+            Debug.Log("[wipbot] Matched queued WIP button layout to idle button.");
+        }
+
+        private void OnDisable()
+        {
+            layoutReadyFrame = -1;
         }
 
         private void UpdateVisibility()
