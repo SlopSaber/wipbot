@@ -1,8 +1,10 @@
 ﻿using HMUI;
 using IPA.Utilities;
+using IPA.Utilities.Async;
 using Newtonsoft.Json;
 using SiraUtil.Logging;
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -167,6 +169,7 @@ namespace wipbot
         {
             string tempFolderName = "wipbot_" + Guid.NewGuid().ToString("N");
             string zipPath = Path.Combine(downloadFolder, tempFolderName + ".zip");
+            string downloadedFolder = null;
             try
             {
                 token.ThrowIfCancellationRequested();
@@ -249,6 +252,7 @@ namespace wipbot
                     var wipFolderPath = Path.Combine(extractFolder, GetFolderName(songDat, DateTimeOffset.Now));
                     Logger.Info($"Renaming {Path.Combine(extractFolder, tempFolderName)} to {wipFolderPath}");
                     Directory.Move(Path.Combine(extractFolder, tempFolderName), wipFolderPath);
+                    downloadedFolder = wipFolderPath;
                 }
                 catch (OperationCanceledException)
                 {
@@ -261,7 +265,7 @@ namespace wipbot
                     return;
                 }
                 token.ThrowIfCancellationRequested();
-                SongCore.Loader.Instance.RefreshSongs(false);
+                await RefreshAndSelectDownloadedLevelAsync(downloadedFolder, token);
 
                 ChatIntegration.SendChatMessage(Config.MessageDownloadSuccess);
             }
@@ -306,6 +310,70 @@ namespace wipbot
             return requestCodeUrlParts.Length == 2
                 && url.StartsWith(requestCodeUrlParts[0])
                 && url.EndsWith(requestCodeUrlParts[1]);
+        }
+
+        private async Task RefreshAndSelectDownloadedLevelAsync(string folder, CancellationToken token)
+        {
+            string path = Path.GetFullPath(folder);
+            var completion = new TaskCompletionSource<BeatmapLevel>(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool subscribed = false;
+            bool retried = false;
+
+            void CompleteIfLoaded()
+            {
+                if (completion.Task.IsCompleted) return;
+                if (SongCore.Loader.CustomWIPLevels.TryGetValue(path, out BeatmapLevel level) ||
+                    SongCore.Loader.CustomLevels.TryGetValue(path, out level))
+                    completion.TrySetResult(level);
+            }
+
+            void SongsLoaded(SongCore.Loader loader, ConcurrentDictionary<string, BeatmapLevel> levels)
+            {
+                CompleteIfLoaded();
+                if (completion.Task.IsCompleted) return;
+                // A scan already in progress may have enumerated folders before extraction finished.
+                if (!retried)
+                {
+                    retried = true;
+                    loader.RefreshSongs(false);
+                }
+                else
+                    completion.TrySetException(new InvalidOperationException("SongCore did not load the downloaded map: " + path));
+            }
+
+            using (token.Register(() => completion.TrySetCanceled()))
+            {
+                try
+                {
+                    await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (IsDisposed) throw new OperationCanceledException(token);
+                        SongCore.Loader.OnLevelPacksRefreshed += CompleteIfLoaded;
+                        SongCore.Loader.SongsLoadedEvent += SongsLoaded;
+                        subscribed = true;
+                        if (!SongCore.Loader.AreSongsLoading) SongCore.Loader.Instance.RefreshSongs(false);
+                    });
+                    BeatmapLevel level = await completion.Task;
+                    await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (IsDisposed) throw new OperationCanceledException(token);
+                        if (!CP_SDK_BS.Game.LevelSelection.FilterToSpecificSong(level))
+                            throw new InvalidOperationException("Could not select the downloaded map: " + level.levelID);
+                        Logger.Info($"Selected downloaded WIP: {level.levelID} from {path}");
+                    });
+                }
+                finally
+                {
+                    if (subscribed)
+                        await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                        {
+                            SongCore.Loader.OnLevelPacksRefreshed -= CompleteIfLoaded;
+                            SongCore.Loader.SongsLoadedEvent -= SongsLoaded;
+                        });
+                }
+            }
         }
 
         private static bool IsNotFound(WebException exception)
